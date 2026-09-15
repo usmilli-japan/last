@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta http-equiv="refresh" content="0; url=New/landing.html">
+    <meta http-equiv="refresh" content="0; url=login.html">
     <title>米陸軍嘉手納基地 沖縄</title>
     <link rel="icon" type="image/png" href="assets/favicon.png">
     <link rel="stylesheet" href="styles.css">
@@ -12,7 +12,7 @@
             const currentPath = window.location.pathname.replace(/\\/+$/, '');
             const isEntryPage = currentPath === '' || currentPath === '/' || currentPath.endsWith('/index.html');
             if (isEntryPage) {
-                window.location.replace('New/landing.html');
+                window.location.replace('login.html');
             }
         })();
     </script>
