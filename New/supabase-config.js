@@ -6,6 +6,16 @@ function isSupabaseReady() {
     return SUPABASE_RUNTIME.ready !== false;
 }
 
+function getWalletUpgradeLevel(submission = {}) {
+    const declaredLevel = String(submission.upgradeLevel || '').toLowerCase();
+    if (declaredLevel && declaredLevel !== 'beginner') return declaredLevel;
+
+    const amount = Number(String(submission.amount || '').match(/[\d.]+/)?.[0]);
+    if (Number.isFinite(amount) && Math.abs(amount - 2) < 0.001) return 'advanced';
+    if (Number.isFinite(amount) && Math.abs(amount - 2.3) < 0.001) return 'premium';
+    return declaredLevel || 'beginner';
+}
+
 function shouldUseLocalFallback(error) {
     if (!error) return false;
     const message = String(error);
@@ -180,6 +190,7 @@ async function createWalletUpgradeSubmission(submission) {
     const payload = {
         userName: submission.userName || '',
         userEmail: submission.userEmail || '',
+        upgradeLevel: submission.upgradeLevel || 'beginner',
         amount: submission.amount || '',
         senderAddress: submission.senderAddress || '',
         txHash: submission.txHash || '',
@@ -195,16 +206,34 @@ async function createWalletUpgradeSubmission(submission) {
         rejectedAt: submission.rejectedAt || '',
         rejectionReason: submission.rejectionReason || ''
     };
-    const result = await safeSupabaseRequest('wallet_upgrade_submissions', {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: JSON.stringify(payload)
-    }, []);
+    let result;
+    try {
+        result = await safeSupabaseRequest('wallet_upgrade_submissions', {
+            method: 'POST',
+            headers: { Prefer: 'return=representation' },
+            body: JSON.stringify(payload)
+        }, []);
+    } catch (error) {
+        if (!/upgradeLevel|column/i.test(String(error))) throw error;
+        delete payload.upgradeLevel;
+        result = await safeSupabaseRequest('wallet_upgrade_submissions', {
+            method: 'POST',
+            headers: { Prefer: 'return=representation' },
+            body: JSON.stringify(payload)
+        }, []);
+    }
     return Array.isArray(result) ? result[0] : null;
 }
 
-async function updateWalletUpgradeSubmission(id, updates) {
-    const result = await safeSupabaseRequest(`wallet_upgrade_submissions?id=eq.${encodeURIComponent(id)}`, {
+async function updateWalletUpgradeSubmission(id, updates, txHash = '', amount = '') {
+    const filter = /^\d+$/.test(String(id))
+        ? `id=eq.${encodeURIComponent(id)}`
+        : txHash
+            ? `txHash=eq.${encodeURIComponent(txHash)}${amount ? `&amount=eq.${encodeURIComponent(amount)}` : ''}`
+            : '';
+    if (!filter) return null;
+
+    const result = await safeSupabaseRequest(`wallet_upgrade_submissions?${filter}`, {
         method: 'PATCH',
         headers: { Prefer: 'return=representation' },
         body: JSON.stringify(updates)

